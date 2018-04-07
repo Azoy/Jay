@@ -1,7 +1,9 @@
 let lexer = Lexer(
   source: """
     i32 main(i32 argc, i8** argv) {
-      i8** hello = "hello blitz"
+      i16 x = 0b100
+      i16 y = 0xC
+      i16 z = x + y
       return 0
     }
     """

@@ -7,22 +7,22 @@
 //
 
 /// Stores ascii value for given character
-enum ASCIITable: UInt32 {
+enum ASCII: UInt32 {
+  case tab = 9
   case newLine = 10
   case space = 32
   case doubleQuote = 34
+  
+  /// The textual representation of this ascii value
+  var character: Character {
+    return Character(Unicode.Scalar(self.rawValue)!)
+  }
 }
 
 extension Character {
-  /// Returns the ascii value of the char
-  var value: UInt32 {
-    return self.unicodeScalars.first!.value
-  }
-  
-  /// Whether or not this char is a new line or space
-  var isWhitespace: Bool {
-    return value == ASCIITable.newLine.rawValue
-      || value == ASCIITable.space.rawValue
+  /// Returns the ascii enum
+  var ascii: ASCII? {
+    return ASCII(rawValue: value)
   }
   
   /// Whether or not this char is a number or a letter
@@ -38,5 +38,15 @@ extension Character {
   /// Whether or not this char is a number
   var isNum: Bool {
     return ("0" ... "9").contains(self)
+  }
+  
+  /// Whether or not this char is a new line or space
+  var isWhitespace: Bool {
+    return ascii == .newLine || ascii == .space || ascii == .tab
+  }
+  
+  /// Returns the ascii value of the char
+  var value: UInt32 {
+    return self.unicodeScalars.first!.value
   }
 }

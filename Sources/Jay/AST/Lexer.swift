@@ -7,23 +7,12 @@
 //
 
 /// Performs lexical analysis on given source code
-class Lexer {
+class Lexer : Diagnoser {
   /// The given source to performLex on
   let source: String
   
   /// The current index for the source
   var index: String.Index
-  
-  /// Map of known direct conversions from character to token
-  let knownChars: [Character: Token] = [
-    "(": .lparen,
-    ")": .rparen,
-    "{": .lbrack,
-    "}": .rbrack,
-    ",": .comma,
-    "*": .asterik,
-    "=": .equal
-  ]
   
   /// Returns the current character if it is not the EOF
   var currentChar: Character? {
@@ -38,18 +27,106 @@ class Lexer {
     self.index = source.startIndex
   }
   
+  /// Tries to get a token for the current character (if we know it)
+  func getKnownChar(_ char: Character) -> Token? {
+    switch char {
+    case "(":
+      return .lparen
+    case ")":
+      return .rparen
+    case "{":
+      return .lbrack
+    case "}":
+      return .rbrack
+    case ",":
+      return .comma
+    case "*":
+      return .asterik
+    case "=":
+      return .equal
+    default:
+      return nil
+    }
+  }
+  
   /// Checks if an alnum string is an integer literal
   ///
   /// - parameter str: The alnum string to check
-  /// - return: Whether or not alnum string is an integer literal
-  func isIntegerLiteral(_ str: String) -> Bool {
+  /// - return: The integer literal with the radix included if deemed an integer literal
+  func isIntegerLiteral(_ str: String) -> (literal: String, radix: Int)? {
+    var str = str
+    
+    // Handle binary literals
+    if str.hasPrefix("0b") {
+      str.removeFirst(2)
+      
+      for char in str {
+        guard ("0" ... "1").contains(char) else {
+          diagnose(
+            LexError.illegalValueInIntegerLiteral.rawValue,
+            with: "binary", char.description
+          )
+          return nil
+        }
+      }
+      
+      return (str, 2)
+    }
+    
+    // Handle octal literals
+    if str.hasPrefix("0o") {
+      str.removeFirst(2)
+      
+      for char in str {
+        guard ("0" ... "7").contains(char) else {
+          diagnose(
+            LexError.illegalValueInIntegerLiteral.rawValue,
+            with: "octal", char.description
+          )
+          return nil
+        }
+      }
+      
+      return (str, 8)
+    }
+    
+    // Handle hex literals
+    if str.hasPrefix("0x") {
+      str.removeFirst(2)
+      
+      for char in str {
+        guard ("0" ... "9").contains(char)
+          || ("A" ... "F").contains(char)
+          || ("a" ... "f").contains(char) else {
+          diagnose(
+            LexError.illegalValueInIntegerLiteral.rawValue,
+            with: "hex", char.description
+          )
+          return nil
+        }
+      }
+      
+      return (str, 16)
+    }
+    
+    // Handle regular integer literals
     for char in str {
       guard char.isNum else {
-        return false
+        return nil
       }
     }
     
-    return true
+    return (str, 10)
+  }
+  
+  /// Looks at the given source from index to end in search of the ascii
+  ///
+  /// - parameter ascii: ASCII value to make sure source has
+  /// - return: Whether or not the source contains this ascii value
+  func lookAhead(for ascii: ASCII) -> Bool {
+    let tmpSource = source.suffix(from: index)
+    let char = Character(Unicode.Scalar(ascii.rawValue)!)
+    return tmpSource.contains(char)
   }
   
   /// Advances the current index to the next char
@@ -72,14 +149,14 @@ class Lexer {
     }
     
     // If we know this char, return it
-    if let tok = knownChars[char] {
+    if let tok = getKnownChar(char) {
       nextIndex()
       return tok
     }
     
     // Check if char is start of string literal
-    if char.value == ASCIITable.doubleQuote.rawValue {
-      let stringLiteral = readStringLiteral()
+    if char.ascii == .doubleQuote {
+      let stringLiteral = readUntilNext(.doubleQuote)
       return .stringLiteral(stringLiteral)
     }
     
@@ -106,9 +183,14 @@ class Lexer {
       return .kw(kw)
     }
     
+    // If this alnum string is a stmt, return it
+    if let stmt = Token.Stmt(rawValue: str) {
+      return .stmt(stmt)
+    }
+    
     // Check if alnum string is an integer literal
-    if isIntegerLiteral(str) {
-      return .integerLiteral(str)
+    if let integer = isIntegerLiteral(str) {
+      return .integerLiteral(integer.literal, integer.radix)
     }
     
     // Otherwise assume this is an identifier
@@ -140,18 +222,30 @@ class Lexer {
     return str
   }
   
-  /// Reads the current and future chars to produce a string literal
+  /// Reads the current and future chars to return everything inbetween
   ///
   /// - return: The string within the literal
-  func readStringLiteral() -> String {
+  func readUntilNext(_ ascii: ASCII) -> String {
+    // Remove first ascii value
     nextIndex()
     
+    // Look ahead to make sure the source has another ascii unit
+    guard lookAhead(for: ascii) else {
+      diagnose(
+        LexError.missingASCIIUntil.rawValue,
+        with: ascii.character.description
+      )
+      return ""
+    }
+    
+    // Get everything inbetween
     var str = ""
-    while let char = currentChar,
-          char.value != ASCIITable.doubleQuote.rawValue {
+    while let char = currentChar, char.ascii != ascii {
       str.append(char)
       nextIndex()
     }
+    
+    // Remove final ascii value
     nextIndex()
     
     return str
