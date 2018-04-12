@@ -35,15 +35,29 @@ class Lexer : Diagnoser {
     case ")":
       return .rparen
     case "{":
-      return .lbrack
+      return .lcurly
     case "}":
-      return .rbrack
+      return .rcurly
+    case "[":
+      return .lbracket
+    case "]":
+      return .rbracket
     case ",":
       return .comma
     case "*":
       return .asterik
     case "=":
       return .equal
+    case "+":
+      return .plus
+    case "-":
+      return .minus
+    //case "x":
+      //return .times
+    case "/":
+      return .divide
+    case "%":
+      return .mod
     default:
       return nil
     }
@@ -63,10 +77,8 @@ class Lexer : Diagnoser {
       for char in str {
         guard ("0" ... "1").contains(char) else {
           diagnose(
-            LexError.illegalValueInIntegerLiteral.rawValue,
-            with: "binary", char.description
+            LexError.illegalChar(char.description, inIntegerLiteral: "binary")
           )
-          return nil
         }
       }
       
@@ -80,10 +92,8 @@ class Lexer : Diagnoser {
       for char in str {
         guard ("0" ... "7").contains(char) else {
           diagnose(
-            LexError.illegalValueInIntegerLiteral.rawValue,
-            with: "octal", char.description
+            LexError.illegalChar(char.description, inIntegerLiteral: "octal")
           )
-          return nil
         }
       }
       
@@ -99,10 +109,8 @@ class Lexer : Diagnoser {
           || ("A" ... "F").contains(char)
           || ("a" ... "f").contains(char) else {
           diagnose(
-            LexError.illegalValueInIntegerLiteral.rawValue,
-            with: "hex", char.description
+            LexError.illegalChar(char.description, inIntegerLiteral: "hex")
           )
-          return nil
         }
       }
       
@@ -162,7 +170,7 @@ class Lexer : Diagnoser {
     
     // Make sure the char is alnum from here on out
     guard char.isAlnum else {
-      return nil
+      diagnose(LexError.unknownChar(char.description))
     }
     
     // Reads the source to provide the next alnum string
@@ -179,8 +187,8 @@ class Lexer : Diagnoser {
     }
     
     // If this alnum string is a kw, return it
-    if let kw = Token.KW(rawValue: str) {
-      return .kw(kw)
+    if let kw = Token.KnownType(rawValue: str) {
+      return .type(kw)
     }
     
     // If this alnum string is a stmt, return it
@@ -232,10 +240,8 @@ class Lexer : Diagnoser {
     // Look ahead to make sure the source has another ascii unit
     guard lookAhead(for: ascii) else {
       diagnose(
-        LexError.missingASCIIUntil.rawValue,
-        with: ascii.character.description
+        LexError.missingClosing(ascii.character.description)
       )
-      return ""
     }
     
     // Get everything inbetween

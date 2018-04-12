@@ -12,7 +12,7 @@ protocol Diagnoser {
   ///
   /// - parameter error: Specific reason for failure
   /// - parameter info: Extra info to enhance diagnostics
-  func diagnose(_ error: String, with info: String...)
+  func diagnose(_ error: String) -> Never
 }
 
 extension Diagnoser {
@@ -20,21 +20,7 @@ extension Diagnoser {
   ///
   /// - parameter error: Specific reason for failure
   /// - parameter info: Extra info to enhance diagnostics
-  func diagnose(_ error: String, with info: String...) {
-    var tmpIndex = error.index(of: "$")
-    var msg = error
-    
-    for info in info {
-      print(msg)
-      guard let index = tmpIndex else {
-        break
-      }
-      
-      msg.remove(at: index)
-      msg.insert(contentsOf: info, at: index)
-      tmpIndex = msg.index(of: "$")
-    }
-    
-    fatalError(msg)
+  func diagnose(_ error: String) -> Never {
+    fatalError(error)
   }
 }

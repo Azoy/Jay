@@ -15,7 +15,7 @@ enum ASCII: UInt32 {
   
   /// The textual representation of this ascii value
   var character: Character {
-    return Character(Unicode.Scalar(self.rawValue)!)
+    return Character(Unicode.Scalar(rawValue)!)
   }
 }
 
@@ -47,6 +47,6 @@ extension Character {
   
   /// Returns the ascii value of the char
   var value: UInt32 {
-    return self.unicodeScalars.first!.value
+    return unicodeScalars.first!.value
   }
 }

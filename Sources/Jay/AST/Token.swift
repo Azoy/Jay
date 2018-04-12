@@ -7,7 +7,7 @@
 //
 
 /// Represents a char or group of chars in the source code
-enum Token {
+enum Token : Equatable {
   /// (
   case lparen
   
@@ -15,10 +15,16 @@ enum Token {
   case rparen
   
   /// {
-  case lbrack
+  case lcurly
   
   /// }
-  case rbrack
+  case rcurly
+  
+  /// [
+  case lbracket
+  
+  /// ]
+  case rbracket
   
   /// ,
   case comma
@@ -29,14 +35,29 @@ enum Token {
   /// =
   case equal
   
+  /// +
+  case plus
+  
+  /// -
+  case minus
+  
+  /// x
+  case times
+  
+  /// /
+  case divide
+  
+  /// %
+  case mod
+  
   /// Declarations such as struct
   case decl(Decl)
   
   /// Expressions like true, false
   case expr(Expr)
   
-  /// Keywords like f32, i32, i64
-  case kw(KW)
+  /// Known Types like f32, i32, i64
+  case type(KnownType)
   
   /// Statements like if, else, return
   case stmt(Stmt)
@@ -67,8 +88,8 @@ extension Token {
     case `false`
   }
   
-  /// Keyword
-  enum KW : String {
+  /// Known Types
+  enum KnownType : String {
     /// 16 bit float
     case f16
     
@@ -89,6 +110,9 @@ extension Token {
     
     /// 64 bit integer
     case i64
+    
+    /// void
+    case void
   }
   
   /// Statement
@@ -101,5 +125,11 @@ extension Token {
     
     /// return statement
     case `return`
+    
+    /// for statement
+    case `for`
+    
+    /// in statement
+    case `in`
   }
 }
