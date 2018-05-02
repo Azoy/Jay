@@ -1,3 +1,5 @@
+import LLVM
+
 let lexer = Lexer(
   source: """
     i32 main(i32 argc, i8** argv) {
@@ -11,6 +13,11 @@ let lexer = Lexer(
 
 let tokens = lexer.performLex()
 
-for token in tokens {
-  print(token)
+let parser = Parser(toks: tokens)
+
+let file = parser.performParse()
+
+for function in file.functions {
+  print(function.value)
+}
 }
