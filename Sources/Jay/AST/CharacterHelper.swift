@@ -12,6 +12,7 @@ enum ASCII: UInt32 {
   case newLine = 10
   case space = 32
   case doubleQuote = 34
+  case atSign = 64
   
   /// The textual representation of this ascii value
   var character: Character {

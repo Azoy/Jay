@@ -7,7 +7,7 @@
 //
 
 /// Represents a char or group of chars in the source code
-enum Token : Equatable {
+enum Token: Equatable {
   /// (
   case lparen
   
@@ -50,6 +50,12 @@ enum Token : Equatable {
   /// %
   case mod
   
+  /// .
+  case period
+  
+  /// Attributes such as @foreign
+  case attr(Attribute)
+  
   /// Declarations such as struct
   case decl(Decl)
   
@@ -73,14 +79,20 @@ enum Token : Equatable {
 }
 
 extension Token {
+  /// Attributes
+  enum Attribute: String {
+    /// Foreign function
+    case foreign
+  }
+  
   /// Declaration
-  enum Decl : String {
+  enum Decl: String {
     /// Structure value type
     case `struct`
   }
   
   /// Expression
-  enum Expr : String {
+  enum Expr: String {
     /// 00000001
     case `true`
     
@@ -89,7 +101,7 @@ extension Token {
   }
   
   /// Known Types
-  enum KnownType : String {
+  enum KnownType: String {
     /// 16 bit float
     case f16
     
@@ -116,7 +128,7 @@ extension Token {
   }
   
   /// Statement
-  enum Stmt : String {
+  enum Stmt: String {
     /// if statement
     case `if`
     

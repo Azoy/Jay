@@ -23,14 +23,27 @@ protocol Expr {
 }
 
 class File {
+  var foreignFunctions = [String: ForeignFunction]()
   var functions = [String: Function]()
 }
 
-struct Function {
+struct ForeignFunction: FunctionDecl {
+  let name: String
+  var params: [Param]
+  let type: String
+}
+
+struct Function: FunctionDecl {
   var body: [Any]
   let name: String
-  let params: [Param]
+  var params: [Param]
   let type: String
+}
+
+protocol FunctionDecl {
+  var name: String { get }
+  var params: [Param] { get set }
+  var type: String { get }
 }
 
 struct IntegerExpr : Expr {
@@ -40,7 +53,7 @@ struct IntegerExpr : Expr {
 }
 
 struct Param {
-  let name: String
+  let name: String?
   let type: String
 }
 

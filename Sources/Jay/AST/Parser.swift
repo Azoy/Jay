@@ -7,6 +7,7 @@
 //
 
 class Parser : Diagnoser {
+  let file = File()
   var index = 0
   var scope: Function?
   let toks: [Token]
@@ -35,6 +36,18 @@ class Parser : Diagnoser {
     consumeTok()
   }
   
+  func handleAttribute() {
+    guard case let .attr(attr) = currentTok! else {
+      diagnose("")
+    }
+    
+    switch attr {
+    case .foreign:
+      let foreignFunc = parseForeignFunc()
+      file.foreignFunctions[foreignFunc.name] = foreignFunc
+    }
+  }
+  
   func parseArgs() -> [Expr] {
     consume(.lparen)
     var args = [Expr]()
@@ -52,6 +65,13 @@ class Parser : Diagnoser {
     
     consume(.rparen)
     return args
+  }
+  
+  func parseDeclRef() -> DeclRefExpr {
+    let name = parseIdentifier()
+    let args = parseArgs()
+    
+    return DeclRefExpr(arguments: args, isFunctionCall: true, name: name, type: nil)
   }
   
   func parseExpr() -> Expr? {
@@ -85,9 +105,9 @@ class Parser : Diagnoser {
       return BinaryOperatorExpr(type: nil, value: "/")
       
     case let .identifier(name):
+      consumeTok()
       if let tok = currentTok, tok == .lparen {
         let args = parseArgs()
-        consumeTok()
         return DeclRefExpr(
           arguments: args,
           isFunctionCall: true,
@@ -96,7 +116,6 @@ class Parser : Diagnoser {
         )
       }
       
-      consumeTok()
       return DeclRefExpr(
         arguments: [],
         isFunctionCall: false,
@@ -106,6 +125,49 @@ class Parser : Diagnoser {
     default:
       return nil
     }
+  }
+  
+  func parseForeignFunc() -> ForeignFunction {
+    consumeTok()
+    let type = parseType()
+    let name = parseIdentifier()
+    let params = parseForeignParams()
+    
+    return ForeignFunction(name: name, params: params, type: type)
+  }
+  
+  func parseForeignParams() -> [Param] {
+    consume(.lparen)
+    var params = [Param]()
+    while let tok = currentTok, tok != .rparen {
+      if currentTok == .comma {
+        consume(.comma)
+      }
+      
+      // Try and consume a vararg
+      guard currentTok != .period else {
+        consume(.period)
+        consume(.period)
+        consume(.period)
+        params.append(Param(name: nil, type: "..."))
+        continue
+      }
+      
+      if case .identifier(_) = currentTok! {
+        params.append(Param(name: nil, type: parseIdentifier()))
+        continue
+      }
+      
+      if case .type(_) = currentTok! {
+        params.append(Param(name: nil, type: parseType()))
+        continue
+      }
+      
+      diagnose("Did not receive a type during parsing foreign function parameter")
+    }
+    
+    consume(.rparen)
+    return params
   }
   
   func parseFunc() -> Function {
@@ -118,7 +180,10 @@ class Parser : Diagnoser {
     var body = [Any]()
     
     while let tok = currentTok, tok != .rcurly {
+      print(currentTok!)
       switch tok {
+      case .identifier(_):
+        body.append(parseDeclRef())
       case .stmt(_):
         body.append(parseStmt())
       case .type(_):
@@ -201,7 +266,15 @@ class Parser : Diagnoser {
       diagnose(ParseError.unexpectedEOF("variable value"))
     }
     
-    while currentTok != nil, let expr = parseExpr() {
+    while currentTok != nil {
+      if case .identifier(_) = currentTok!, value.last is DeclRefExpr {
+        break
+      }
+      
+      guard let expr = parseExpr() else {
+        break
+      }
+      
       value.append(expr)
     }
     
@@ -209,9 +282,11 @@ class Parser : Diagnoser {
   }
   
   func performParse() -> File {
-    let file = File()
+    // Perform top level parsing
     while let tok = currentTok {
       switch tok {
+      case .attr(_):
+        handleAttribute()
       case .type(_): // Parse function declaration
         let function = parseFunc()
         file.functions[function.name] = function

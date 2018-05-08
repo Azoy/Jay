@@ -11,8 +11,10 @@ import LLVM
 class IRGen : Diagnoser {
   var builder: IRBuilder
   let file: File
+  var functions = [String: IRValue]()
   let module: Module
-  var tmpVars = [String: IRValue]()
+  var strings = [String: IRValue]()
+  var scopeVars = [String: IRValue]()
   
   init(file: File, moduleName: String) {
     self.file = file
@@ -22,7 +24,7 @@ class IRGen : Diagnoser {
   
   func allocateVar(_ variable: Variable) {
     let type = getKnownLLVMType(for: variable.type)
-    tmpVars[variable.name] = builder.buildAlloca(type: type)
+    scopeVars[variable.name] = builder.buildAlloca(type: type)
   }
   
   func getKnownLLVMType(for type: String) -> IRType {
@@ -77,40 +79,91 @@ class IRGen : Diagnoser {
     return ptrType
   }
   
-  func handleExpr(_ expr: Expr, variable: Variable) {
-    if let declRef = expr as? DeclRefExpr {
-      guard let ref = tmpVars[declRef.name] else {
-        return
-      }
-      
-      guard let tmp = tmpVars[variable.name] else {
-        return
-      }
-      
-      let tmp2 = builder.buildLoad(ref.constGEP(indices: []))
-      let _ = builder.buildStore(tmp2, to: tmp)
-      return
+  func handleDeclRef(_ declRef: DeclRefExpr) -> IRValue {
+    guard declRef.isFunctionCall else {
+      let ptr = scopeVars[declRef.name]!
+      return builder.buildLoad(ptr)
     }
     
-    if let integerExpr = expr as? IntegerExpr,
-       let intType = getKnownLLVMType(for: variable.type) as? IntType {
+    let functionDecl: FunctionDecl
+    
+    if let function = file.functions[declRef.name] {
+      functionDecl = function
+    } else {
+      functionDecl = file.foreignFunctions[declRef.name]!
+    }
+    
+    var args = [IRValue]()
+    for i in declRef.arguments.indices {
+      let arg = declRef.arguments[i]
+      var paramType: IRType? = nil
+      
+      if i < functionDecl.params.count, functionDecl.params[i].type != "..." {
+        paramType = getKnownLLVMType(for: functionDecl.params[i].type)
+      }
+      
+      var value = handleExpr(arg, type: paramType)
+      
+      if arg is StringExpr {
+        value = builder.buildInBoundsGEP(
+          value,
+          indices: [
+            0,
+            0
+          ]
+        )
+      }
+      
+      args.append(value)
+    }
+    
+    let function = functions[declRef.name]!
+    let call = builder.buildCall(
+      function,
+      args: args
+    )
+    
+    return call
+  }
+  
+  func handleExpr(_ expr: Expr, type: IRType? = nil) -> IRValue {
+    if let declRef = expr as? DeclRefExpr {
+      return handleDeclRef(declRef)
+    }
+    
+    if let integerExpr = expr as? IntegerExpr {
+      let intType: IntType
+      
+      if let type = type as? IntType {
+        intType = type
+      } else {
+        intType = IntType.int32
+      }
+      
       let constant = intType.constant(
         integerExpr.value,
         radix: integerExpr.radix
       )
       
-      guard let tmp = tmpVars[variable.name] else {
-        return
-      }
-      
-      let _ = builder.buildStore(constant, to: tmp.constGEP(indices: []))
-      return
+      return constant
     }
+    
+    if let stringExpr = expr as? StringExpr {
+      return builder.buildGlobalString(stringExpr.value)
+    }
+    
+    diagnose("Unknown expression kind during IRGen")
   }
   
   func handleVar(_ variable: Variable) {
     if variable.value.count == 1 {
-      handleExpr(variable.value.first!, variable: variable)
+      let value = handleExpr(
+        variable.value.first!,
+        type: getKnownLLVMType(
+          for: variable.type
+        )
+      )
+      let _ = builder.buildStore(value, to: scopeVars[variable.name]!)
       return
     }
     
@@ -123,11 +176,11 @@ class IRGen : Diagnoser {
     
     var tmpStorage = [IRValue]()
     for declRef in declRefs {
-      guard let ref = tmpVars[declRef.name] else {
+      guard let ref = scopeVars[declRef.name] else {
         return
       }
       
-      tmpStorage.append(builder.buildLoad(ref.constGEP(indices: [])))
+      tmpStorage.append(loadPtr(ref))
     }
     
     guard tmpStorage.count % 2 == 0 else {
@@ -139,12 +192,20 @@ class IRGen : Diagnoser {
       let second = tmpStorage[i + 1]
       let tmp = builder.buildAdd(first, second)
       
-      guard let tmpVar = tmpVars[variable.name] else {
+      guard let tmpVar = scopeVars[variable.name] else {
         return
       }
       
       let _ = builder.buildStore(tmp, to: tmpVar)
     }
+  }
+  
+  func loadPtr(_ ptr: IRValue) -> IRValue {
+    guard ptr.isAAllocaInst else {
+      fatalError("Load to unknown instruction")
+    }
+    
+    return builder.buildLoad(ptr)
   }
   
   func makeReturn(for stmt: ReturnStmt, with type: IRType) {
@@ -162,6 +223,31 @@ class IRGen : Diagnoser {
   }
   
   func performIRGen() -> Module {
+    // Declare foreign funcs first
+    for (name, parsedForeignFunc) in file.foreignFunctions {
+      var parsedForeignFunc = parsedForeignFunc
+      var isVarArg = false
+      if !parsedForeignFunc.params.isEmpty,
+          parsedForeignFunc.params.last!.type == "..." {
+        parsedForeignFunc.params.removeLast()
+        isVarArg = true
+      }
+      let argTypes = parsedForeignFunc.params.map {
+        getKnownLLVMType(for: $0.type)
+      }
+      let returnType = getKnownLLVMType(for: parsedForeignFunc.type)
+      
+      functions[name] = builder.addFunction(
+        name,
+        type: FunctionType(
+          argTypes: argTypes,
+          returnType: returnType,
+          isVarArg: isVarArg
+        )
+      )
+    }
+    
+    // Define funcs second
     for (name, parsedFunction) in file.functions {
       let argTypes = parsedFunction.params.map {
         getKnownLLVMType(for: $0.type)
@@ -181,11 +267,9 @@ class IRGen : Diagnoser {
       
       // Initial alloca
       for line in parsedFunction.body {
-        guard let variable = line as? Variable else {
-          continue
+        if let variable = line as? Variable {
+          allocateVar(variable)
         }
-        
-        allocateVar(variable)
       }
       
       // Run through a second time
@@ -198,9 +282,13 @@ class IRGen : Diagnoser {
           handleVar(variable)
         }
         
+        if let declRef = line as? DeclRefExpr {
+          _ = handleDeclRef(declRef)
+        }
+        
       }
       
-      tmpVars.removeAll()
+      scopeVars.removeAll()
     }
     
     return module

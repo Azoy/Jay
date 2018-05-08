@@ -58,6 +58,8 @@ class Lexer : Diagnoser {
       return .divide
     case "%":
       return .mod
+    case ".":
+      return .period
     default:
       return nil
     }
@@ -166,6 +168,15 @@ class Lexer : Diagnoser {
     if char.ascii == .doubleQuote {
       let stringLiteral = readUntilNext(.doubleQuote)
       return .stringLiteral(stringLiteral)
+    }
+    
+    // Check if char is start of attribute
+    if char.ascii == .atSign {
+      nextIndex()
+      let attrStr = readAlnum()
+      if let attr = Token.Attribute(rawValue: attrStr) {
+        return .attr(attr)
+      }
     }
     
     // Make sure the char is alnum from here on out
