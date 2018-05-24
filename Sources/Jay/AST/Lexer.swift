@@ -7,7 +7,7 @@
 //
 
 /// Performs lexical analysis on given source code
-class Lexer : Diagnoser {
+class Lexer: Diagnoser {
   /// The given source to performLex on
   let source: String
   

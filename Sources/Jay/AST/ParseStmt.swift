@@ -10,11 +10,7 @@ extension Parser {
   func parseReturnStmt() -> ReturnStmt {
     consumeTok()
     
-    guard let expr = parseExpr() else {
-      diagnose(ParseError.unableToParse(for: "expression"))
-    }
-    
-    return ReturnStmt(value: expr)
+    return ReturnStmt(expr: parseExpr())
   }
   
   func parseStmt() -> Stmt {

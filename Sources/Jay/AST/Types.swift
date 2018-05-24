@@ -6,9 +6,15 @@
 //  Copyright © 2018 Alejandro Alonso. All rights reserved.
 //
 
-struct BinaryOperatorExpr : Expr {
+struct BinaryOperatorExpr : Expr, Equatable {
+  let precedence: Int
   var type: String?
   let value: String
+}
+
+protocol Decl {
+  var name: String { get }
+  var type: String { get }
 }
 
 struct DeclRefExpr : Expr {
@@ -23,27 +29,37 @@ protocol Expr {
 }
 
 class File {
-  var foreignFunctions = [String: ForeignFunction]()
   var functions = [String: Function]()
 }
 
-struct ForeignFunction: FunctionDecl {
-  let name: String
-  var params: [Param]
-  let type: String
-}
-
-struct Function: FunctionDecl {
+struct Function: Decl {
   var body: [Any]
+  
+  var isForeignFunc: Bool {
+    guard body.isEmpty else {
+      return false
+    }
+    
+    for param in params {
+      guard param.name == nil else {
+        return false
+      }
+    }
+    
+    return true
+  }
+  
+  var isVarArg: Bool {
+    guard let lastParam = params.last else {
+      return false
+    }
+    
+    return lastParam.type == "..."
+  }
+  
   let name: String
   var params: [Param]
   let type: String
-}
-
-protocol FunctionDecl {
-  var name: String { get }
-  var params: [Param] { get set }
-  var type: String { get }
 }
 
 struct IntegerExpr : Expr {
@@ -52,13 +68,31 @@ struct IntegerExpr : Expr {
   let value: String
 }
 
+struct MovedExpr: Expr {
+  let index: Int
+  var type: String?
+}
+
 struct Param {
   let name: String?
   let type: String
 }
 
 struct ReturnStmt : Stmt {
-  let value: Expr
+  var expr: Expr?
+}
+
+struct SequenceExpr: Expr {
+  var expression: Expr {
+    guard expressions.count > 0 else {
+      fatalError("Sequence Expression had no expressions to return")
+    }
+    
+    return expressions.count == 1 ? expressions.first! : self
+  }
+  
+  var expressions: [Expr]
+  var type: String?
 }
 
 protocol Stmt {}
@@ -68,8 +102,13 @@ struct StringExpr : Expr {
   let value: String
 }
 
-struct Variable {
+struct TempBinaryOperatorExpr: Equatable {
+  let key: Int
+  let value: BinaryOperatorExpr
+}
+
+struct Variable: Decl {
   let name: String
   let type: String
-  let value: [Expr]
+  var expr: Expr?
 }

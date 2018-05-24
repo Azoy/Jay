@@ -6,18 +6,18 @@
 //  Copyright © 2018 Alejandro Alonso. All rights reserved.
 //
 
-class Parser : Diagnoser {
+class Parser: Diagnoser {
   let file = File()
   var index = 0
   var scope: Function?
-  let toks: [Token]
+  let tokens: [Token]
   
   var currentTok: Token? {
-    return index < toks.count ? toks[index] : nil
+    return index < tokens.count ? tokens[index] : nil
   }
   
-  init(toks: [Token]) {
-    self.toks = toks
+  init(tokens: [Token]) {
+    self.tokens = tokens
   }
   
   func consumeTok() {
@@ -44,7 +44,7 @@ class Parser : Diagnoser {
     switch attr {
     case .foreign:
       let foreignFunc = parseForeignFunc()
-      file.foreignFunctions[foreignFunc.name] = foreignFunc
+      file.functions[foreignFunc.name] = foreignFunc
     }
   }
   
@@ -60,6 +60,12 @@ class Parser : Diagnoser {
         diagnose(ParseError.unexpectedToken(tok))
       }
       
+      if let _ = parseExpr() {
+        index -= 2
+        args.append(parseSeqExpr())
+        continue
+      }
+      
       args.append(expr)
     }
     
@@ -67,73 +73,13 @@ class Parser : Diagnoser {
     return args
   }
   
-  func parseDeclRef() -> DeclRefExpr {
-    let name = parseIdentifier()
-    let args = parseArgs()
-    
-    return DeclRefExpr(arguments: args, isFunctionCall: true, name: name, type: nil)
-  }
-  
-  func parseExpr() -> Expr? {
-    guard let tok = currentTok else {
-      diagnose(ParseError.unexpectedEOF("expression"))
-    }
-    
-    switch tok {
-    case let .integerLiteral(num, radix):
-      consumeTok()
-      return IntegerExpr(radix: radix, type: nil, value: num)
-      
-    case let .stringLiteral(string):
-      consumeTok()
-      return StringExpr(type: "i8*", value: string)
-      
-    case .plus:
-      consumeTok()
-      return BinaryOperatorExpr(type: nil, value: "+")
-      
-    case .minus:
-      consumeTok()
-      return BinaryOperatorExpr(type: nil, value: "-")
-      
-    case .asterik:
-      consumeTok()
-      return BinaryOperatorExpr(type: nil, value: "*")
-      
-    case .divide:
-      consumeTok()
-      return BinaryOperatorExpr(type: nil, value: "/")
-      
-    case let .identifier(name):
-      consumeTok()
-      if let tok = currentTok, tok == .lparen {
-        let args = parseArgs()
-        return DeclRefExpr(
-          arguments: args,
-          isFunctionCall: true,
-          name: name,
-          type: nil
-        )
-      }
-      
-      return DeclRefExpr(
-        arguments: [],
-        isFunctionCall: false,
-        name: name,
-        type: nil
-      )
-    default:
-      return nil
-    }
-  }
-  
-  func parseForeignFunc() -> ForeignFunction {
+  func parseForeignFunc() -> Function {
     consumeTok()
     let type = parseType()
     let name = parseIdentifier()
     let params = parseForeignParams()
     
-    return ForeignFunction(name: name, params: params, type: type)
+    return Function(body: [], name: name, params: params, type: type)
   }
   
   func parseForeignParams() -> [Param] {
@@ -180,7 +126,6 @@ class Parser : Diagnoser {
     var body = [Any]()
     
     while let tok = currentTok, tok != .rcurly {
-      print(currentTok!)
       switch tok {
       case .identifier(_):
         body.append(parseDeclRef())
@@ -220,10 +165,12 @@ class Parser : Diagnoser {
   
   func parseParams() -> [Param] {
     consume(.lparen)
+    
     var args = [Param]()
     while let tok = currentTok, tok != .rparen {
       let type = parseType()
       let name = parseIdentifier()
+      
       if currentTok == .comma {
         consume(.comma)
       }
@@ -258,27 +205,10 @@ class Parser : Diagnoser {
   func parseVar() -> Variable {
     let type = parseType()
     let name = parseIdentifier()
-    var value = [Expr]()
     
     consume(.equal)
     
-    guard currentTok != nil else {
-      diagnose(ParseError.unexpectedEOF("variable value"))
-    }
-    
-    while currentTok != nil {
-      if case .identifier(_) = currentTok!, value.last is DeclRefExpr {
-        break
-      }
-      
-      guard let expr = parseExpr() else {
-        break
-      }
-      
-      value.append(expr)
-    }
-    
-    return Variable(name: name, type: type, value: value)
+    return Variable(name: name, type: type, expr: tryParseSeqExpr())
   }
   
   func performParse() -> File {

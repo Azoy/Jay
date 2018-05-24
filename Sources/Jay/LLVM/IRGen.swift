@@ -85,13 +85,7 @@ class IRGen : Diagnoser {
       return builder.buildLoad(ptr)
     }
     
-    let functionDecl: FunctionDecl
-    
-    if let function = file.functions[declRef.name] {
-      functionDecl = function
-    } else {
-      functionDecl = file.foreignFunctions[declRef.name]!
-    }
+    let functionDecl = file.functions[declRef.name]!
     
     var args = [IRValue]()
     for i in declRef.arguments.indices {
@@ -148,6 +142,10 @@ class IRGen : Diagnoser {
       return constant
     }
     
+    if let seqExpr = expr as? SequenceExpr {
+      return handleSeqExpr(seqExpr)
+    }
+    
     if let stringExpr = expr as? StringExpr {
       return builder.buildGlobalString(stringExpr.value)
     }
@@ -155,49 +153,93 @@ class IRGen : Diagnoser {
     diagnose("Unknown expression kind during IRGen")
   }
   
+  func handleSeqExpr(_ seqExpr: SequenceExpr) -> IRValue {
+    var lastOperation: IRValue!
+    var index = 0
+    
+    for i in seqExpr.expressions.indices {
+      guard i == index else {
+        continue
+      }
+      
+      let irValue1: IRValue
+      
+      if lastOperation != nil {
+        irValue1 = lastOperation
+      } else {
+        irValue1 = handleExpr(seqExpr.expressions[i])
+      }
+      index += 1
+      
+      if let binaryExpr = seqExpr.expressions[i] as? BinaryOperatorExpr {
+        guard i + 1 < seqExpr.expressions.count else {
+          diagnose("Infix operator without rhs")
+        }
+        
+        let irValue2 = handleExpr(seqExpr.expressions[i + 1])
+        index += 1
+        
+        switch binaryExpr.value {
+        case "+":
+          lastOperation = builder.buildAdd(irValue1, irValue2)
+        case "-":
+          lastOperation =  builder.buildSub(irValue1, irValue2)
+        case "*":
+          lastOperation =  builder.buildMul(irValue1, irValue2)
+        case "/":
+          lastOperation =  builder.buildDiv(irValue1, irValue2)
+        default:
+          diagnose("Unknown binary operator in IRGen")
+        }
+        
+        continue
+      }
+      
+      guard index < seqExpr.expressions.count else {
+        diagnose("Lhs without an operator")
+      }
+      
+      guard let binaryExpr = seqExpr.expressions[index] as? BinaryOperatorExpr else {
+        diagnose("Consecutive illegal expressions")
+      }
+      index += 1
+      
+      guard index < seqExpr.expressions.count else {
+        diagnose("Infix operator without rhs")
+      }
+      
+      let irValue2 = handleExpr(seqExpr.expressions[index])
+      index += 1
+      
+      switch binaryExpr.value {
+      case "+":
+        lastOperation = builder.buildAdd(irValue1, irValue2)
+      case "-":
+        lastOperation =  builder.buildSub(irValue1, irValue2)
+      case "*":
+        lastOperation =  builder.buildMul(irValue1, irValue2)
+      case "/":
+        lastOperation =  builder.buildDiv(irValue1, irValue2)
+      default:
+        diagnose("Unknown binary operator in IRGen")
+      }
+    }
+    
+    return lastOperation
+  }
+  
   func handleVar(_ variable: Variable) {
-    if variable.value.count == 1 {
-      let value = handleExpr(
-        variable.value.first!,
-        type: getKnownLLVMType(
-          for: variable.type
-        )
+    guard let expr = variable.expr else {
+      diagnose("Uninitialized variable found: \(variable.name)")
+    }
+    
+    let value = handleExpr(
+      expr,
+      type: getKnownLLVMType(
+        for: variable.type
       )
-      let _ = builder.buildStore(value, to: scopeVars[variable.name]!)
-      return
-    }
-    
-    var declRefs = [DeclRefExpr]()
-    for expr in variable.value {
-      if let declRef = expr as? DeclRefExpr {
-        declRefs.append(declRef)
-      }
-    }
-    
-    var tmpStorage = [IRValue]()
-    for declRef in declRefs {
-      guard let ref = scopeVars[declRef.name] else {
-        return
-      }
-      
-      tmpStorage.append(loadPtr(ref))
-    }
-    
-    guard tmpStorage.count % 2 == 0 else {
-      return
-    }
-    
-    for i in 0 ..< declRefs.count / 2 {
-      let first = tmpStorage[i]
-      let second = tmpStorage[i + 1]
-      let tmp = builder.buildAdd(first, second)
-      
-      guard let tmpVar = scopeVars[variable.name] else {
-        return
-      }
-      
-      let _ = builder.buildStore(tmp, to: tmpVar)
-    }
+    )
+    let _ = builder.buildStore(value, to: scopeVars[variable.name]!)
   }
   
   func loadPtr(_ ptr: IRValue) -> IRValue {
@@ -209,8 +251,8 @@ class IRGen : Diagnoser {
   }
   
   func makeReturn(for stmt: ReturnStmt, with type: IRType) {
-    if let integerLiteral = stmt.value as? IntegerExpr,
-       let intType = type as? IntType {
+    if let integerLiteral = stmt.expr as? IntegerExpr,
+      let intType = type as? IntType {
       let constant = intType.constant(
         integerLiteral.value,
         radix: integerLiteral.radix
@@ -224,13 +266,16 @@ class IRGen : Diagnoser {
   
   func performIRGen() -> Module {
     // Declare foreign funcs first
-    for (name, parsedForeignFunc) in file.foreignFunctions {
+    for (name, parsedForeignFunc) in file.functions {
+      guard parsedForeignFunc.isForeignFunc else {
+        continue
+      }
+      
       var parsedForeignFunc = parsedForeignFunc
       var isVarArg = false
-      if !parsedForeignFunc.params.isEmpty,
-          parsedForeignFunc.params.last!.type == "..." {
-        parsedForeignFunc.params.removeLast()
+      if parsedForeignFunc.isVarArg {
         isVarArg = true
+        parsedForeignFunc.params.removeLast()
       }
       let argTypes = parsedForeignFunc.params.map {
         getKnownLLVMType(for: $0.type)
@@ -249,6 +294,10 @@ class IRGen : Diagnoser {
     
     // Define funcs second
     for (name, parsedFunction) in file.functions {
+      guard !parsedFunction.isForeignFunc else {
+        continue
+      }
+      
       let argTypes = parsedFunction.params.map {
         getKnownLLVMType(for: $0.type)
       }
